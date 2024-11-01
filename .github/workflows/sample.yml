@@ -1,0 +1,119 @@
+name: "Advanced Analysis"
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  schedule:
+    - cron: '0 0 * * *'
+
+jobs:
+  pattern-analysis:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Analyze Regex Patterns
+        run: |
+          find . -type f -name "*.js" -exec sh -c '
+            for file do
+              echo "Analyzing patterns in $file..."
+              # Check for potentially dangerous patterns
+              grep -H "eval(" "$file" || true
+              grep -H "new Function(" "$file" || true
+              # Check regex complexity
+              grep -oP "\/(.+?)\/" "$file" | while read -r pattern; do
+                if [ "${#pattern}" -gt 100 ]; then
+                  echo "Complex regex found: $pattern"
+                fi
+              done
+            done
+          ' sh {} +
+
+  security-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Check for Sensitive Data
+        run: |
+          for pattern in "password" "secret" "api[_-]?key" "token" "credential"; do
+            find . -type f -not -path "*/\.*" -exec grep -l -i "$pattern" {} \;
+          done
+          
+      - name: Check HTML Injection Points
+        run: |
+          find . -type f -name "*.js" -exec grep -l "innerHTML\|outerHTML\|document\.write" {} \;
+          
+      - name: Analyze DOM XSS Vectors
+        run: |
+          find . -type f -name "*.js" -exec grep -l "location\|\.href\|\.search\|\.hash" {} \;
+
+  code-metrics:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Calculate Code Metrics
+        run: |
+          echo "=== File Sizes ==="
+          find . -type f -name "*.js" -exec du -h {} \;
+          
+          echo "=== Lines of Code ==="
+          find . -type f -name "*.js" -exec wc -l {} \;
+          
+          echo "=== Function Count ==="
+          find . -type f -name "*.js" -exec grep -c "function" {} \;
+          
+          echo "=== Complexity Indicators ==="
+          find . -type f -name "*.js" -exec grep -c "if\|while\|for\|switch" {} \;
+
+  performance-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Check Memory Usage Patterns
+        run: |
+          find . -type f -name "*.js" -exec sh -c '
+            echo "=== Memory Analysis for $1 ==="
+            # Check array allocations
+            grep -H "new Array(" "$1" || true
+            # Check closure memory leaks
+            grep -H "addEventListener" "$1" | grep -vH "removeEventListener" || true
+            # Check large object literals
+            awk "/\{/,/\}/" "$1" | grep -c ":" || true
+          ' sh {} \;
+          
+      - name: Analyze Event Handlers
+        run: |
+          find . -type f -name "*.js" -exec sh -c '
+            echo "=== Event Handler Analysis for $1 ==="
+            grep -H "addEventListener" "$1" || true
+            grep -H "on[A-Z][a-zA-Z]*=" "$1" || true
+          ' sh {} \;
+
+  extension-specific:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Check Manifest
+        run: |
+          if [ -f "manifest.json" ]; then
+            jq empty manifest.json && echo "Valid JSON"
+            jq -r '.permissions[]' manifest.json || true
+            jq -r '.content_scripts[].matches[]' manifest.json || true
+          fi
+          
+      - name: Analyze Content Scripts
+        run: |
+          find . -type f -name "*.js" -exec sh -c '
+            echo "=== Content Script Analysis for $1 ==="
+            # Check for proper isolation
+            grep -H "window\." "$1" || true
+            grep -H "document\." "$1" || true
+            # Check message passing
+            grep -H "chrome\.runtime\.sendMessage" "$1" || true
+          ' sh {} \;
